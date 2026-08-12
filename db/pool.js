@@ -4,18 +4,22 @@ require('dotenv').config();
 const pool = new Pool(
   process.env.DATABASE_URL
     ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-      }
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    }
     : {
-        host: process.env.DB_HOST || 'localhost',
-        port: parseInt(process.env.DB_PORT || '5432'),
-        database: process.env.DB_NAME || 'image-tool',
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || '',
-        connectionTimeoutMillis: 5000,
-      }
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432'),
+      database: process.env.DB_NAME || 'image-tool',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || '',
+      connectionTimeoutMillis: 5000,
+    }
 );
+
+pool.on('error', (err) => {
+  console.error('Unexpected idle PostgreSQL client error:', err.message);
+});
 
 /**
  * Initialize PostgreSQL Schema & Migrations automatically
@@ -56,6 +60,22 @@ async function initDb() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
     `);
+
+    // Create ads table
+    await client.query(`
+  CREATE TABLE IF NOT EXISTS ads (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    position TEXT NOT NULL CHECK (position IN ('leaderboard', 'skyscraper', 'rectangle', 'interstitial')),
+    ad_client TEXT,
+    ad_slot TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`);
+
+    console.log('✅ Ads table ready.');
 
     console.log('✅ PostgreSQL Schema verified: "users" table, PRO/Ad-Free & Admin columns ready.');
     client.release();

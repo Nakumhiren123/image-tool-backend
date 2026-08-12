@@ -59,7 +59,7 @@ async function createOrder(req, res) {
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
     if (!keyId || !keySecret || keyId.includes('REPLACE_WITH_YOUR_KEY') || keySecret.includes('REPLACE_WITH_YOUR_KEY')) {
-      return res.status(400).json({
+      return res.json({
         success: false,
         error: '⚠️ Razorpay API keys not configured. Please add your real RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env',
       });

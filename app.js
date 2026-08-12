@@ -6,6 +6,7 @@ const authRoutes = require('./routes/authRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const { initDb } = require('./db/pool');
+const adRoutes = require('./routes/adRoutes');
 
 const app = express();
 
@@ -34,8 +35,18 @@ app.use(cookieParser());
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   next();
 });
+
+// app.use((req, res, next) => {
+//   res.setHeader('X-Content-Type-Options', 'nosniff');
+//   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+//   next();
+// });
+
+app.use('/api', adRoutes);
 
 // ✅ Lazy DB init — safe for Vercel serverless
 let dbInitialized = false;
