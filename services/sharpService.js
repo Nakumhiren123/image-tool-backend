@@ -1,14 +1,26 @@
 const sharp = require('sharp');
 
+const MAX_IMAGE_PIXELS = 100_000_000;
+
+const createSharp = (inputBuffer) => {
+  return sharp(inputBuffer, {
+    limitInputPixels: MAX_IMAGE_PIXELS,
+  });
+};
+
 class SharpService {
   /**
    * Convert image to target format — returns a Buffer
    */
   async convertImage(inputBuffer, targetFormat = 'png', options = {}) {
-    const quality = parseInt(options.quality) || 80;
+    const quality = Number(options.quality ?? 80);
+
+    if (!Number.isInteger(quality) || quality < 1 || quality > 100) {
+      throw new Error('Invalid image quality.');
+    }
     const format = targetFormat.toLowerCase();
 
-    let pipeline = sharp(inputBuffer);
+    let pipeline = createSharp(inputBuffer);
 
     switch (format) {
       case 'jpg':
@@ -43,42 +55,83 @@ class SharpService {
       return this.convertImage(inputBuffer, 'jpg', { quality });
     }
 
-    const targetBytes = targetKB * 1024;
+    const targetBytes = Number(targetKB) * 1024;
+
+    if (
+      !Number.isFinite(targetBytes) ||
+      targetBytes <= 0
+    ) {
+      throw new Error('Invalid target size.');
+    }
+
     let minQ = 5;
     let maxQ = 98;
     let bestBuffer = null;
-    let iterations = 0;
 
-    while (iterations < 7) {
+    for (let iterations = 0; iterations < 8; iterations++) {
       const midQ = Math.round((minQ + maxQ) / 2);
-      iterations++;
 
-      const buf = await sharp(inputBuffer)
+      const buf = await createSharp(inputBuffer)
         .flatten({ background: '#ffffff' })
         .jpeg({ quality: midQ })
-        .toBuffer(); // ✅ no disk I/O
+        .toBuffer();
 
-      bestBuffer = buf;
-
-      if (buf.length > targetBytes) {
-        maxQ = midQ - 1;
-      } else {
+      if (buf.length <= targetBytes) {
+        // Keep the largest buffer that is still within the target.
+        bestBuffer = buf;
         minQ = midQ + 1;
-        if (targetBytes - buf.length < targetBytes * 0.05) break;
+      } else {
+        maxQ = midQ - 1;
+      }
+
+      if (minQ > maxQ) {
+        break;
       }
     }
 
-    return bestBuffer;
+    if (bestBuffer) {
+      return bestBuffer;
+    }
+
+    const smallestBuffer = await createSharp(inputBuffer)
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 5 })
+      .toBuffer();
+
+    if (smallestBuffer.length <= targetBytes) {
+      return smallestBuffer;
+    }
+
+    throw new Error(
+      `Unable to compress image below the requested target size of ${targetKB} KB.`
+    );
   }
 
   /**
    * Resize image — returns a Buffer
    */
   async resizeImage(inputBuffer, width, height, maintainAspect = true) {
-    const w = parseInt(width) || null;
-    const h = parseInt(height) || null;
 
-    return sharp(inputBuffer)
+    const w =
+      width !== undefined && width !== null && width !== ''
+        ? Number(width)
+        : null;
+
+    const h =
+      height !== undefined && height !== null && height !== ''
+        ? Number(height)
+        : null;
+
+    if (
+      (w !== null &&
+        (!Number.isInteger(w) || w < 1 || w > 20000)) ||
+      (h !== null &&
+        (!Number.isInteger(h) || h < 1 || h > 20000))
+    ) {
+      throw new Error('Invalid resize dimensions.');
+    }
+
+    return createSharp(inputBuffer)
       .resize({
         width: w,
         height: h,

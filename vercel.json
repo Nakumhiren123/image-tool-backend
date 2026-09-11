@@ -11,5 +11,11 @@
             "src": "/(.*)",
             "dest": "/api/index.js"
         }
+    ],
+    "crons": [
+        {
+            "path": "/api/maintenance/cleanup-ip",
+            "schedule": "0 2 * * *"
+        }
     ]
 }

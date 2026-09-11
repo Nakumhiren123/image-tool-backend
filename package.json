@@ -1,12 +1,14 @@
 {
   "name": "image-tools-backend",
   "version": "1.0.0",
-  "description": "Node.js Express Sharp Backend API for iLoveIMG / TinyPNG Clone",
+  "description": "Node.js Express Sharp Backend API",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
     "dev": "node --watch app.js",
-    "vercel-build": "npm install --include=optional sharp"
+    "vercel-build": "npm install --include=optional sharp",
+    "migrate": "node-pg-migrate up -d DATABASE_MIGRATION_URL",
+    "migrate:down": "node-pg-migrate down -d DATABASE_MIGRATION_URL"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -14,10 +16,12 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^7.5.1",
     "google-auth-library": "^10.9.1",
     "jsonwebtoken": "^9.0.3",
     "mime-types": "^2.1.35",
     "multer": "^2.0.0",
+    "node-pg-migrate": "^9.0.0",
     "pg": "^8.22.0",
     "razorpay": "^2.9.8",
     "sharp": "^0.33.3",

@@ -1,15 +1,17 @@
-# Dependencies
-node_modules/
-
-# Environment variables & secrets — NEVER commit these
+# ── Secrets — NEVER commit these ──────────────────────────────────────────────
 .env
 .env.local
 .env.production
+.env.staging
+.env.development
 *.env
 
-# Temporary image processing folders
-uploads/
-output/
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
 
 # Logs
 *.log
@@ -20,6 +22,6 @@ yarn-debug.log*
 .DS_Store
 Thumbs.db
 
-# Build artifacts
-dist/
-build/
+# Temp image folders
+uploads/
+output/

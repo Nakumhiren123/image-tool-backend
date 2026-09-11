@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAdmin } = require('../middleware/auth');
+const { csrfProtection } = require('../middleware/csrfProtection');
 const {
     getAds,
     createAd,
@@ -13,9 +14,31 @@ const {
 router.get('/ads', getAds);
 
 // ── Admin Only Routes ──
-router.post('/admin/ads', requireAdmin, createAd);
-router.put('/admin/ads/:id', requireAdmin, updateAd);
-router.delete('/admin/ads/:id', requireAdmin, deleteAd);
-router.post('/admin/ads/:id/toggle', requireAdmin, toggleAd);
+router.post(
+    '/admin/ads',
+    requireAdmin,
+    csrfProtection,
+    createAd
+);
 
+router.put(
+    '/admin/ads/:id',
+    requireAdmin,
+    csrfProtection,
+    updateAd
+);
+
+router.delete(
+    '/admin/ads/:id',
+    requireAdmin,
+    csrfProtection,
+    deleteAd
+);
+
+router.post(
+    '/admin/ads/:id/toggle',
+    requireAdmin,
+    csrfProtection,
+    toggleAd
+);
 module.exports = router;
