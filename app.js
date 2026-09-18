@@ -26,6 +26,8 @@ const { query } = require('./db/pool');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 const MAX_UPLOAD_MB = parseInt(
   process.env.MAX_UPLOAD_MB || '10',
   10
