@@ -998,4 +998,122 @@ async function verifyRedirect(req, res) {
   }
 }
 
-module.exports = { getConfig, createOrder, verifyPayment, verifyRedirect };
+// ── POST /api/payment/webhook ─────────────────────────────────────────────────
+async function razorpayWebhook(req, res) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+  if (!secret) {
+    logger.error('RAZORPAY_WEBHOOK_SECRET not configured', { errorCategory: 'CONFIGURATION' });
+    return res.status(500).end();
+  }
+
+  const signature = req.headers['x-razorpay-signature'];
+  if (!signature) {
+    return res.status(400).end();
+  }
+
+  // Verify webhook signature using raw body
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(req.body) // raw Buffer — see route setup
+    .digest('hex');
+
+  let sigBuffer, expectedBuffer;
+  try {
+    sigBuffer = Buffer.from(signature, 'hex');
+    expectedBuffer = Buffer.from(expected, 'hex');
+  } catch {
+    return res.status(400).end();
+  }
+
+  if (
+    sigBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+  ) {
+    logger.warn('Webhook signature mismatch', { errorCategory: 'PAYMENT' });
+    return res.status(400).end();
+  }
+
+  let event;
+  try {
+    event = JSON.parse(req.body.toString());
+  } catch {
+    return res.status(400).end();
+  }
+
+  // Only handle successful captures
+  if (event?.event !== 'payment.captured') {
+    return res.status(200).end();
+  }
+
+  const payment = event?.payload?.payment?.entity;
+  if (!payment) return res.status(200).end();
+
+  const { id: razorpay_payment_id, order_id: razorpay_order_id } = payment;
+
+  try {
+    const rzp = getRazorpay();
+    if (!rzp) return res.status(200).end();
+
+    // Fetch order from Razorpay to get userId and plan from notes
+    const orderDetails = await rzp.orders.fetch(razorpay_order_id);
+    const userId = orderDetails?.notes?.userId;
+    const planId = orderDetails?.notes?.plan;
+
+    if (!userId || !planId || !PRODUCTS[planId]) {
+      logger.warn('Webhook: missing userId or plan in order notes', { errorCategory: 'PAYMENT' });
+      return res.status(200).end();
+    }
+
+    const product = PRODUCTS[planId];
+
+    // Skip if already processed
+    const existing = await query(
+      `SELECT id FROM payments WHERE razorpay_payment_id = $1 OR razorpay_order_id = $2 LIMIT 1`,
+      [razorpay_payment_id, razorpay_order_id]
+    );
+    if (existing.rowCount > 0) return res.status(200).end();
+
+    // Calculate expiry
+    const currentUser = await query(
+      `SELECT expires_at FROM users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (currentUser.rowCount === 0) return res.status(200).end();
+
+    const existingExpiry = currentUser.rows[0].expires_at
+      ? new Date(currentUser.rows[0].expires_at)
+      : null;
+    const now = new Date();
+    const subscriptionStart = existingExpiry && existingExpiry > now ? existingExpiry : now;
+    const expiresAt = new Date(subscriptionStart.getTime() + product.days * 24 * 60 * 60 * 1000);
+
+    await withTransaction(async (client) => {
+      const dup = await client.query(
+        `SELECT id FROM payments WHERE razorpay_payment_id = $1 OR razorpay_order_id = $2 LIMIT 1 FOR UPDATE`,
+        [razorpay_payment_id, razorpay_order_id]
+      );
+      if (dup.rowCount > 0) return;
+
+      await client.query(
+        `INSERT INTO payments (user_id, razorpay_order_id, razorpay_payment_id, razorpay_signature, amount, currency, plan, status, paid_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+        [userId, razorpay_order_id, razorpay_payment_id, 'webhook', product.amountInr, product.currency, planId, 'captured']
+      );
+
+      await client.query(
+        `UPDATE users SET is_pro=true, is_ad_free=true, plan=$1, subscription_status='active', expires_at=$2, pro_plan=$3, pro_purchased_at=NOW(), razorpay_order_id=$4, razorpay_payment_id=$5 WHERE id=$6`,
+        [planId, expiresAt.toISOString(), product.name, razorpay_order_id, razorpay_payment_id, userId]
+      );
+    });
+
+    logger.info('Webhook: Pro activated via payment.captured', { userId, planId, errorCategory: 'PAYMENT' });
+    return res.status(200).end();
+
+  } catch (err) {
+    logger.error('Webhook processing failed', { errorCategory: 'PAYMENT', error: err });
+    return res.status(200).end(); // Always 200 to Razorpay so it doesn't retry forever
+  }
+}
+
+module.exports = { getConfig, createOrder, verifyPayment, verifyRedirect, razorpayWebhook };

@@ -697,12 +697,6 @@ async function googleAuth(req, res) {
       errorName: err?.name,
     });
 
-    console.error(
-      '[GOOGLE_AUTH_DEBUG]',
-      err?.name,
-      err?.message,
-      err?.stack
-    );
     return res.status(500).json({ success: false, error: 'Google authentication failed.' });
   }
 }

@@ -24,6 +24,7 @@ const createPoolConfig = (connectionString, options = {}) => ({
 });
 
 const pool = new Pool(
+
   process.env.DATABASE_URL
     ? createPoolConfig(process.env.DATABASE_URL)
     : {

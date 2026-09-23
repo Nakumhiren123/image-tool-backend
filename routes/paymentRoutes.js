@@ -1,12 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const {
-    getConfig,
-    createOrder,
-    verifyPayment,
-    verifyRedirect
-} = require('../controllers/paymentController');
+const { getConfig, createOrder, verifyPayment, verifyRedirect, razorpayWebhook } = require('../controllers/paymentController');
 
 const { authenticate } = require('../middleware/auth');
 
@@ -23,5 +18,8 @@ router.post('/verify', authenticate, csrfProtection, verifyPayment);
 
 // Razorpay Hosted Gateway redirect — no cookie
 router.post('/verify-redirect', verifyRedirect);
+
+// Razorpay webhook — raw body required for signature verification
+router.post('/webhook', express.raw({ type: 'application/json' }), razorpayWebhook);
 
 module.exports = router;

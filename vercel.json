@@ -14,7 +14,7 @@
     ],
     "crons": [
         {
-            "path": "/api/maintenance/cleanup-ip",
+            "path": "/api/maintenance/cleanup-ip?secret=8f1d989c9889670ddf7f23ec3a0f845bdb0469aa5b25b07fc7d4200be3fa922a",
             "schedule": "0 2 * * *"
         }
     ]

@@ -19,7 +19,7 @@ router.get('/cleanup-ip', async (req, res) => {
             });
         }
 
-        const authorization = req.headers.authorization;
+        const authorization = req.headers.authorization || `Bearer ${req.query.secret}`;
 
         if (authorization !== `Bearer ${cronSecret}`) {
             return res.status(401).json({
