@@ -39,6 +39,45 @@ function hasOnlyAllowedFields(body, allowedFields) {
   return Object.keys(body).every((key) => allowedFields.has(key));
 }
 
+const PLAN_LIMITS = {
+  free: { maxBatchSize: 3, maxFileSizeMB: 10 },
+  pro:  { maxBatchSize: 50, maxFileSizeMB: 50 },
+};
+
+function enforcePlanLimits(req, res) {
+  const isPro = req.user?.is_pro === true;
+  const plan = isPro ? PLAN_LIMITS.pro : PLAN_LIMITS.free;
+
+  // Check batch size
+  const fileCount = Array.isArray(req.files) ? req.files.length : (req.file ? 1 : 0);
+  if (fileCount > plan.maxBatchSize) {
+    res.status(429).json({
+      success: false,
+      error: `Free plan allows up to ${plan.maxBatchSize} images at once. Upgrade to Pro for up to ${PLAN_LIMITS.pro.maxBatchSize}.`,
+      code: 'BATCH_LIMIT_EXCEEDED',
+      upgradeRequired: !isPro,
+    });
+    return false;
+  }
+
+  // Check file size per file
+  const files = Array.isArray(req.files) ? req.files : [req.file].filter(Boolean);
+  for (const file of files) {
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > plan.maxFileSizeMB) {
+      res.status(413).json({
+        success: false,
+        error: `File "${file.originalname || 'uploaded file'}" exceeds the ${plan.maxFileSizeMB}MB limit for your plan.`,
+        code: 'FILE_SIZE_EXCEEDED',
+        upgradeRequired: !isPro,
+      });
+      return false;
+    }
+  }
+
+  return true;
+}
+
 const validateImageBuffer = async (buffer) => {
   if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new Error('Invalid image data.');
@@ -123,6 +162,7 @@ const getSafeImageError = (err) => {
 
 exports.convertImage = async (req, res) => {
   try {
+    if (!enforcePlanLimits(req, res)) return;
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
     }
@@ -188,6 +228,7 @@ exports.convertImage = async (req, res) => {
 
 exports.compressImage = async (req, res) => {
   try {
+    if (!enforcePlanLimits(req, res)) return;
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -278,6 +319,7 @@ exports.compressImage = async (req, res) => {
 };
 exports.resizeImage = async (req, res) => {
   try {
+    if (!enforcePlanLimits(req, res)) return;
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
     }

@@ -21,11 +21,8 @@ router.get('/cleanup-ip', async (req, res) => {
 
         const authorization = req.headers.authorization || `Bearer ${req.query.secret}`;
 
-        if (authorization !== `Bearer ${cronSecret}`) {
-            return res.status(401).json({
-                success: false,
-                error: 'Unauthorized.',
-            });
+        if (req.query.secret !== cronSecret && authorization !== `Bearer ${cronSecret}`) {
+            return res.status(401).end();
         }
 
         const result = await query(`

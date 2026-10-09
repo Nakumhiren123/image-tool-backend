@@ -70,8 +70,15 @@ app.use(cors({
 
 // Limit JSON/form request bodies to prevent unnecessarily large
 // authentication and API payloads.
-// Image uploads are handled separately by Multer.
-app.use(express.json({ limit: '16kb' }));
+// Capture rawBody buffer for Razorpay/payment webhook signature verification.
+app.use(express.json({
+  limit: '16kb',
+  verify: (req, _res, buf) => {
+    if (req.url.includes('/webhook') || req.url.includes('/payment')) {
+      req.rawBody = buf;
+    }
+  }
+}));
 
 app.use(express.urlencoded({
   extended: true,
@@ -87,6 +94,10 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '0'); // Modern browsers: rely on CSP not this
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src blob: data: 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+  );
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   // Allow Google OAuth popup without breaking

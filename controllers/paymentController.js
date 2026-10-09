@@ -1012,10 +1012,15 @@ async function razorpayWebhook(req, res) {
     return res.status(400).end();
   }
 
-  // Verify webhook signature using raw body
+  const body = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+  if (!body) {
+    return res.status(400).end();
+  }
+
+  // Verify webhook signature using raw body buffer
   const expected = crypto
     .createHmac('sha256', secret)
-    .update(req.body) // raw Buffer — see route setup
+    .update(body)
     .digest('hex');
 
   let sigBuffer, expectedBuffer;
@@ -1036,7 +1041,7 @@ async function razorpayWebhook(req, res) {
 
   let event;
   try {
-    event = JSON.parse(req.body.toString());
+    event = typeof body === 'string' ? JSON.parse(body) : req.body;
   } catch {
     return res.status(400).end();
   }

@@ -44,24 +44,31 @@ async function authenticate(req, res, next) {
     });
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch (jwtErr) {
+    res.clearCookie('token', getAuthCookieClearOptions());
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired session. Please sign in again.'
+    });
+  }
 
-    if (!decoded?.id) {
-      res.clearCookie('token', getAuthCookieClearOptions());
+  if (!decoded?.id) {
+    res.clearCookie('token', getAuthCookieClearOptions());
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid session.'
+    });
+  }
 
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid session.'
-      });
-    }
-
-
-
+  try {
     const result = await query(
       `
       SELECT
         id,
+        is_pro,
         deleted_at
       FROM users
       WHERE id = $1
@@ -74,7 +81,6 @@ async function authenticate(req, res, next) {
 
     if (!user) {
       res.clearCookie('token', getAuthCookieClearOptions());
-
       return res.status(401).json({
         success: false,
         error: 'User account not found.'
@@ -83,7 +89,6 @@ async function authenticate(req, res, next) {
 
     if (user.deleted_at) {
       res.clearCookie('token', getAuthCookieClearOptions());
-
       return res.status(403).json({
         success: false,
         error: 'This account has been deleted.',
@@ -91,20 +96,21 @@ async function authenticate(req, res, next) {
       });
     }
 
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      is_pro: Boolean(user.is_pro),
+    };
     next();
   } catch (err) {
-    logger.error('Authentication middleware failed', {
+    logger.error('Authentication DB query failed', {
       requestId: req.requestId,
       errorCategory: 'AUTHENTICATION',
       error: err,
     });
 
-    res.clearCookie('token', getAuthCookieClearOptions());
-
-    return res.status(401).json({
+    return res.status(500).json({
       success: false,
-      error: 'Invalid or expired session. Please sign in again.'
+      error: 'Internal server error during authentication.'
     });
   }
 }
@@ -261,28 +267,45 @@ async function requireAdmin(req, res, next) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Admin login required.' });
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch (jwtErr) {
+    res.clearCookie('token', getAuthCookieClearOptions());
+    return res.status(401).json({ success: false, error: 'Invalid or expired admin session.' });
+  }
 
+  try {
     const result = await query(
-      'SELECT id,email, is_admin, is_super_admin FROM users WHERE id = $1',
+      'SELECT id, email, is_admin, is_super_admin, is_pro, deleted_at FROM users WHERE id = $1',
       [decoded.id]
     );
     const user = result.rows[0];
 
-    const isAdmin = user?.is_admin === true;
+    if (!user) {
+      res.clearCookie('token', getAuthCookieClearOptions());
+      return res.status(401).json({ success: false, error: 'User account not found.' });
+    }
 
-    if (!user || !isAdmin) {
+    if (user.deleted_at) {
+      res.clearCookie('token', getAuthCookieClearOptions());
+      return res.status(403).json({ success: false, error: 'This account has been deleted.', code: 'ACCOUNT_DELETED' });
+    }
+
+    if (!user.is_admin) {
       return res.status(403).json({ success: false, error: 'Access denied: Admin privileges required.' });
     }
 
-    req.user = user;
+    req.user = {
+      ...decoded,
+      ...user,
+      is_pro: Boolean(user.is_pro),
+      is_admin: Boolean(user.is_admin),
+    };
     next();
   } catch (err) {
-
-    res.clearCookie('token', getAuthCookieClearOptions());
-
-    return res.status(401).json({ success: false, error: 'Invalid or expired admin session.' });
+    logger.error('requireAdmin DB query failed', { requestId: req.requestId, error: err });
+    return res.status(500).json({ success: false, error: 'Internal server error during admin authentication.' });
   }
 }
 

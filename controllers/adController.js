@@ -1,365 +1,264 @@
 const { query } = require('../db/pool');
 const logger = require('../utils/logger');
 
-const MAX_AD_TITLE_LENGTH = 200;
-const MAX_AD_CLIENT_LENGTH = 200;
-const MAX_AD_SLOT_LENGTH = 200;
+const ALLOWED_POSITIONS = new Set(['leaderboard', 'rectangle', 'skyscraper', 'interstitial']);
+const ALLOWED_FIELDS = new Set(['title', 'position', 'ad_client', 'ad_slot']);
 
-const ALLOWED_AD_FIELDS = new Set([
-    'title',
-    'position',
-    'ad_client',
-    'ad_slot',
-]);
-
-const ALLOWED_AD_POSITIONS = new Set([
-    'leaderboard',
-    'skyscraper',
-    'rectangle',
-    'interstitial',
-]);
-
-function hasOnlyAllowedFields(body, allowedFields) {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        return false;
-    }
-
-    return Object.keys(body).every((key) => allowedFields.has(key));
+function hasOnlyAllowedFields(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return false;
+  }
+  return Object.keys(body).every(key => ALLOWED_FIELDS.has(key));
 }
 
-function validateAdId(value) {
-    const id = Number(value);
-
-    if (!Number.isInteger(id) || id <= 0) {
-        return null;
-    }
-
-    return id;
-}
-
-function validateAdFields(body = {}) {
-    const {
-        title,
-        position,
-        ad_client,
-        ad_slot,
-    } = body;
-
-    if (
-        typeof title !== 'string' ||
-        !title.trim() ||
-        title.trim().length > MAX_AD_TITLE_LENGTH
-    ) {
-        return {
-            error: `Title is required and must be ${MAX_AD_TITLE_LENGTH} characters or fewer.`,
-        };
-    }
-
-    if (
-        typeof position !== 'string' ||
-        !ALLOWED_AD_POSITIONS.has(position)
-    ) {
-        return {
-            error: 'Invalid ad position.',
-        };
-    }
-
-    if (
-        ad_client !== undefined &&
-        ad_client !== null &&
-        (
-            typeof ad_client !== 'string' ||
-            ad_client.length > MAX_AD_CLIENT_LENGTH
-        )
-    ) {
-        return {
-            error: `ad_client must be ${MAX_AD_CLIENT_LENGTH} characters or fewer.`,
-        };
-    }
-
-    if (
-        ad_slot !== undefined &&
-        ad_slot !== null &&
-        (
-            typeof ad_slot !== 'string' ||
-            ad_slot.length > MAX_AD_SLOT_LENGTH
-        )
-    ) {
-        return {
-            error: `ad_slot must be ${MAX_AD_SLOT_LENGTH} characters or fewer.`,
-        };
-    }
-
-    return null;
-}
-
-/**
- * GET /api/ads
- * Public — frontend fetches all active ads
- */
+// ── GET /api/ads (Public) ─────────────────────────────────────────────────────
 async function getAds(req, res) {
-    try {
-        const result = await query(`
-      SELECT id, title, position, ad_client, ad_slot
-      FROM ads
-      WHERE is_active = true
-      ORDER BY created_at DESC
-    `);
-        return res.json({ success: true, ads: result.rows });
-    } catch (err) {
-        logger.error('Get ads failed', {
-            requestId: req.requestId,
-            errorCategory: 'DATABASE',
-            error: err,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: 'Could not fetch ads.',
-        });
-    }
+  try {
+    const result = await query(
+      `SELECT id, title, position, ad_client, ad_slot, is_active FROM ads WHERE is_active = true ORDER BY id ASC`
+    );
+    return res.status(200).json({
+      success: true,
+      ads: result.rows,
+    });
+  } catch (err) {
+    logger.error('Failed to fetch ads', { requestId: req.requestId, error: err });
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to fetch ads.',
+    });
+  }
 }
 
-/**
- * POST /api/admin/ads
- * Admin only — create new ad
- */
+// ── POST /api/admin/ads (Admin) ───────────────────────────────────────────────
 async function createAd(req, res) {
-    try {
+  if (!hasOnlyAllowedFields(req.body)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unexpected request fields.',
+    });
+  }
 
-        if (!hasOnlyAllowedFields(req.body, ALLOWED_AD_FIELDS)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Unexpected request fields.',
-            });
-        }
+  const { title, position, ad_client, ad_slot } = req.body;
 
-        const validationError = validateAdFields(req.body);
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Title is required.',
+    });
+  }
 
-        if (validationError) {
-            return res.status(400).json({
-                success: false,
-                error: validationError.error,
-            });
-        }
+  if (title.length > 200) {
+    return res.status(400).json({
+      success: false,
+      error: 'Title exceeds maximum length of 200 characters.',
+    });
+  }
 
-        const {
-            title,
-            position,
-            ad_client,
-            ad_slot,
-        } = req.body;
+  if (!position || typeof position !== 'string' || !ALLOWED_POSITIONS.has(position.trim())) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad position',
+    });
+  }
 
-        const cleanTitle = title.trim();
-        const cleanAdClient =
-            typeof ad_client === 'string'
-                ? ad_client.trim()
-                : null;
+  if (ad_client && (typeof ad_client !== 'string' || ad_client.length > 200)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad_client.',
+    });
+  }
 
-        const cleanAdSlot =
-            typeof ad_slot === 'string'
-                ? ad_slot.trim()
-                : null;
+  if (ad_slot && (typeof ad_slot !== 'string' || ad_slot.length > 200)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad_slot.',
+    });
+  }
 
-        const result = await query(`
-      INSERT INTO ads (title, position, ad_client, ad_slot, is_active)
-      VALUES ($1, $2, $3, $4, true)
-      RETURNING *
-    `, [
-            cleanTitle,
-            position,
-            cleanAdClient || null,
-            cleanAdSlot || null,
-        ]);
+  try {
+    const result = await query(
+      `INSERT INTO ads (title, position, ad_client, ad_slot, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+       RETURNING id, title, position, ad_client, ad_slot, is_active, created_at, updated_at`,
+      [title.trim(), position.trim(), ad_client ? ad_client.trim() : null, ad_slot ? ad_slot.trim() : null]
+    );
 
-        return res.json({ success: true, ad: result.rows[0] });
-    } catch (err) {
-        logger.error('Create ad failed', {
-            requestId: req.requestId,
-            errorCategory: 'DATABASE',
-            error: err,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: 'Could not create ad.',
-        });
-    }
+    return res.status(201).json({
+      success: true,
+      ad: result.rows[0],
+    });
+  } catch (err) {
+    logger.error('Failed to create ad', { requestId: req.requestId, error: err });
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to create ad.',
+    });
+  }
 }
 
-/**
- * PUT /api/admin/ads/:id
- * Admin only — update existing ad
- */
+// ── PUT /api/admin/ads/:id (Admin) ────────────────────────────────────────────
 async function updateAd(req, res) {
-    try {
-        const id = validateAdId(req.params.id);
+  const adId = parseInt(req.params.id, 10);
+  if (isNaN(adId) || adId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad ID.',
+    });
+  }
 
-        if (!id) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid ad ID.',
-            });
-        }
+  if (!hasOnlyAllowedFields(req.body)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unexpected request fields.',
+    });
+  }
 
-        if (!hasOnlyAllowedFields(req.body, ALLOWED_AD_FIELDS)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Unexpected request fields.',
-            });
-        }
+  const { title, position, ad_client, ad_slot } = req.body;
 
-        const validationError = validateAdFields(req.body);
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Title is required.',
+    });
+  }
 
-        if (validationError) {
-            return res.status(400).json({
-                success: false,
-                error: validationError.error,
-            });
-        }
+  if (title.length > 200) {
+    return res.status(400).json({
+      success: false,
+      error: 'Title exceeds maximum length of 200 characters.',
+    });
+  }
 
-        const {
-            title,
-            position,
-            ad_client,
-            ad_slot,
-        } = req.body;
+  if (!position || typeof position !== 'string' || !ALLOWED_POSITIONS.has(position.trim())) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad position',
+    });
+  }
 
-        const cleanTitle = title.trim();
+  if (ad_client && (typeof ad_client !== 'string' || ad_client.length > 200)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad_client.',
+    });
+  }
 
-        const cleanAdClient =
-            typeof ad_client === 'string'
-                ? ad_client.trim()
-                : null;
+  if (ad_slot && (typeof ad_slot !== 'string' || ad_slot.length > 200)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad_slot.',
+    });
+  }
 
-        const cleanAdSlot =
-            typeof ad_slot === 'string'
-                ? ad_slot.trim()
-                : null;
+  try {
+    const result = await query(
+      `UPDATE ads
+          SET title = $1, position = $2, ad_client = $3, ad_slot = $4, updated_at = NOW()
+        WHERE id = $5
+        RETURNING id, title, position, ad_client, ad_slot, is_active, created_at, updated_at`,
+      [title.trim(), position.trim(), ad_client ? ad_client.trim() : null, ad_slot ? ad_slot.trim() : null, adId]
+    );
 
-        const result = await query(`
-      UPDATE ads
-      SET title = $1, position = $2, ad_client = $3, ad_slot = $4, updated_at = NOW()
-      WHERE id = $5
-      RETURNING *
-    `, [
-            cleanTitle,
-            position,
-            cleanAdClient || null,
-            cleanAdSlot || null,
-            id,
-        ]);
-
-        if (!result.rows[0]) {
-            return res.status(404).json({ success: false, error: 'Ad not found.' });
-        }
-
-        return res.json({ success: true, ad: result.rows[0] });
-    } catch (err) {
-        logger.error('Update ad failed', {
-            requestId: req.requestId,
-            errorCategory: 'DATABASE',
-            error: err,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: 'Could not update ad.',
-        });
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ad not found.',
+      });
     }
+
+    return res.status(200).json({
+      success: true,
+      ad: result.rows[0],
+    });
+  } catch (err) {
+    logger.error('Failed to update ad', { requestId: req.requestId, error: err });
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to update ad.',
+    });
+  }
 }
 
-/**
- * DELETE /api/admin/ads/:id
- * Admin only — delete ad
- */
+// ── DELETE /api/admin/ads/:id (Admin) ─────────────────────────────────────────
 async function deleteAd(req, res) {
-    try {
-        const id = validateAdId(req.params.id);
+  const adId = parseInt(req.params.id, 10);
+  if (isNaN(adId) || adId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad ID.',
+    });
+  }
 
-        if (!id) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid ad ID.',
-            });
-        }
+  try {
+    const result = await query(
+      `DELETE FROM ads WHERE id = $1 RETURNING id`,
+      [adId]
+    );
 
-        const result = await query(
-            'DELETE FROM ads WHERE id = $1 RETURNING id',
-            [id]
-        );
-
-        if (result.rowCount === 0) {
-            return res.status(404).json({
-                success: false,
-                error: 'Ad not found.',
-            });
-        }
-
-        return res.json({ success: true, message: 'Ad deleted successfully.' });
-    } catch (err) {
-        logger.error('Delete ad failed', {
-            requestId: req.requestId,
-            errorCategory: 'DATABASE',
-            error: err,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: 'Could not delete ad.',
-        });
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ad not found.',
+      });
     }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Ad deleted.',
+    });
+  } catch (err) {
+    logger.error('Failed to delete ad', { requestId: req.requestId, error: err });
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to delete ad.',
+    });
+  }
 }
 
-/**
- * POST /api/admin/ads/:id/toggle
- * Admin only — enable or disable ad
- */
+// ── POST /api/admin/ads/:id/toggle (Admin) ────────────────────────────────────
 async function toggleAd(req, res) {
-    try {
-        const id = validateAdId(req.params.id);
+  const adId = parseInt(req.params.id, 10);
+  if (isNaN(adId) || adId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ad ID.',
+    });
+  }
 
-        if (!id) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid ad ID.',
-            });
-        }
+  try {
+    const result = await query(
+      `UPDATE ads
+          SET is_active = NOT is_active, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, title, position, ad_client, ad_slot, is_active, created_at, updated_at`,
+      [adId]
+    );
 
-        const result = await query(`
-      UPDATE ads
-      SET is_active = NOT is_active, updated_at = NOW()
-      WHERE id = $1
-      RETURNING *
-    `, [id]);
-
-        if (!result.rows[0]) {
-            return res.status(404).json({ success: false, error: 'Ad not found.' });
-        }
-
-        return res.json({
-            success: true,
-            ad: result.rows[0],
-            message: `Ad ${result.rows[0].is_active ? 'enabled' : 'disabled'} successfully.`,
-        });
-    } catch (err) {
-        logger.error('Toggle ad failed', {
-            requestId: req.requestId,
-            errorCategory: 'DATABASE',
-            error: err,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: 'Could not toggle ad.',
-        });
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ad not found.',
+      });
     }
+
+    return res.status(200).json({
+      success: true,
+      ad: result.rows[0],
+    });
+  } catch (err) {
+    logger.error('Failed to toggle ad status', { requestId: req.requestId, error: err });
+    return res.status(500).json({
+      success: false,
+      error: 'Unable to toggle ad status.',
+    });
+  }
 }
 
 module.exports = {
-    getAds,
-    createAd,
-    updateAd,
-    deleteAd,
-    toggleAd,
+  getAds,
+  createAd,
+  updateAd,
+  deleteAd,
+  toggleAd,
 };
